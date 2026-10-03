@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Merchant Assist</title>
+<style>
+:root{--g:#1e5b3a;--r:#b3261e;--a:#a85d00;--l:#dfe5e0;--bg:#f4f6f3}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,sans-serif;background:var(--bg);color:#1c2520}
+header{background:var(--g);color:#fff;padding:14px 20px}header h1{margin:0;font-size:1.3rem}header p{margin:3px 0 0;font-size:.85rem;opacity:.9}
+nav{display:flex;gap:6px;padding:12px 16px;flex-wrap:wrap;max-width:1000px;margin:0 auto}
+button{background:var(--g);color:#fff;border:0;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #e0a100;outline-offset:2px}
+button.o{background:#fff;color:var(--g);border:1px solid var(--g)}button.on{background:var(--g);color:#fff}
+main{max-width:1000px;margin:0 auto;padding:0 16px 40px}
+section{display:none;background:#fff;border:1px solid var(--l);border-radius:8px;padding:16px;margin-bottom:14px}section.on{display:block}
+h2{margin:0 0 10px;font-size:1.05rem}h3{margin:16px 0 6px;font-size:.95rem}
+textarea{width:100%;min-height:110px;padding:9px;border:1px solid #c5cec8;border-radius:6px;font:inherit}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--l);font-size:.88rem}th{background:#eef2ee}
+.w{overflow-x:auto}.k{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.k div{border:1px solid var(--l);border-radius:8px;padding:10px}.k b{display:block;font-size:1.35rem}
+.bad{color:var(--r)}.warn{color:var(--a)}.note{font-size:.8rem;color:#55645b}.tag{background:#fff1d6;color:var(--a);padding:1px 7px;border-radius:10px;font-size:.75rem}
+.box{background:#f1f6f2;border:1px solid var(--l);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:.85rem}
+</style></head><body>
+<header><h1>Merchant Assist</h1><p>Capture a sale once. Get restock advice, expiry alerts, surplus offers and credit tracking. Runs offline in this browser.</p></header>
+<nav id="nav"></nav>
+<main>
+<section id="add"><h2>Add sales</h2>
+<p class="note">One sale per line: <b>qty item price</b>. Add <b>credit name</b> for udhaar. Example: <i>5 Parle-G 10</i> or <i>2 Milk 500ml 28 credit Ramesh</i>. Paste OCR output here and fix any red lines.</p>
+<textarea id="txt" placeholder="5 Parle-G 10&#10;2 Milk 500ml 28 credit Ramesh"></textarea>
+<p><button onclick="preview()">Check lines</button> <button id="addBtn" onclick="commit()" disabled>Add valid lines</button></p>
+<div id="prev"></div>
+<p><button class="o" onclick="sample()">Load sample data</button> <button class="o" onclick="resetAll()">Clear all data</button></p>
+<p class="note">Sample data is synthetic and generated for the demo. It is not real sales data.</p></section>
+
+<section id="adv"><h2>Advice for tomorrow</h2><div id="advOut"></div></section>
+
+<section id="ud"><h2>Udhaar and cash</h2><div class="k" id="kp"></div><div class="w"><table><thead><tr><th>Date</th><th>Customer</th><th>Item</th><th>Amount</th><th>Status</th></tr></thead><tbody id="udRows"></tbody></table></div></section>
+</main>
+<script>
+const K="merchant_assist_v1",$=i=>document.getElementById(i);
+let S=load(),parsed=[];
+function load(){try{return JSON.parse(localStorage.getItem(K))||{sales:[],stock:[]}}catch(e){return{sales:[],stock:[]}}}
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const addD=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inr=n=>"₹"+Math.round(n).toLocaleString("en-IN");
+const dd=(a,b)=>Math.round((new Date(a)-new Date(b))/864e5);
+const TABS=[["add","Add sales"],["adv","Advice"],["ud","Udhaar and cash"]];
+function tab(id){TABS.forEach(t=>{$(t[0]).classList.toggle("on",t[0]===id)});[...$("nav").children].forEach((b,i)=>b.classList.toggle("on",TABS[i][0]===id));if(id==="adv")advice();if(id==="ud")udhaar()}
+$("nav").innerHTML=TABS.map(t=>`<button class="o" onclick="tab('${t[0]}')">${t[1]}</button>`).join("");
+
+// ---- sample data (synthetic) ----
+const ITEMS=[["Milk 500ml",28,25,1,70,2],["Bread",40,12,1,30,2],["Curd 400g",35,10,1,18,3],["Parle-G",10,30,0,90,120],["Atta 5kg",230,6,0,14,150],["Sunflower oil 1L",140,5,0,10,200],["Tea 250g",120,5,0,12,300],["Eggs (tray)",180,4,1,20,3]];
+function sample(){
+ let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+ const t=new Date(),cust=["Ramesh","Sunita","Imran"];S={sales:[],stock:[]};
+ for(let n=28;n>=1;n--){const d=addD(t,-n),we=[0,6].includes(d.getDay());
+  ITEMS.forEach(it=>{const bump=(it[0]==="Atta 5kg"&&n===10)?1.8:1;
+   const q=Math.max(0,Math.round(it[2]*(we?1.3:1)*bump*(0.8+rnd()*0.4)));
+   if(q){const cr=rnd()<.15;S.sales.push({item:it[0],qty:q,price:it[1],date:iso(d),payment:cr?"credit":"cash",customer:cr?cust[Math.floor(rnd()*3)]:"",paid:!cr})}})}
+ ITEMS.forEach(it=>S.stock.push({item:it[0],price:it[1],per:!!it[3],qty:it[4],expiry:iso(addD(t,it[5]))}));
+ save();tab("adv")}
+function resetAll(){if(confirm("Delete all data in this browser?")){S={sales:[],stock:[]};save();$("prev").innerHTML="";tab("add")}}
+
+// ---- capture: parse -> confirm -> add ----
+function canon(n){const s=S.stock.find(x=>x.item.toLowerCase().includes(n.toLowerCase()));return s?s.item:n}
+function preview(){
+ parsed=$("txt").value.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+  const m=l.match(/^(\d+(?:\.\d+)?)\s+(.+?)\s+(\d+(?:\.\d+)?)(?:\s+credit\s+(.+))?$/i);
+  return m?{ok:1,qty:+m[1],item:canon(m[2].trim()),price:+m[3],payment:m[4]?"credit":"cash",customer:m[4]?m[4].trim():""}:{ok:0,raw:l}});
+ const good=parsed.filter(p=>p.ok).length;$("addBtn").disabled=!good;
+ $("prev").innerHTML=parsed.length?`<div class="w"><table><tr><th>Item</th><th>Qty</th><th>Price</th><th>Payment</th></tr>`+parsed.map(p=>p.ok?`<tr><td>${esc(p.item)}</td><td>${p.qty}</td><td>${inr(p.price)}</td><td>${p.payment}${p.customer?" ("+esc(p.customer)+")":""}</td></tr>`:`<tr><td colspan="4" class="bad">Could not read: ${esc(p.raw)}. Use the format qty item price.</td></tr>`).join("")+`</table></div>`:"";
+}
+function commit(){
+ const t=iso(new Date());let n=0;
+ parsed.filter(p=>p.ok).forEach(p=>{S.sales.push({item:p.item,qty:p.qty,price:p.price,date:t,payment:p.payment,customer:p.customer,paid:p.payment==="cash"});
+  const s=S.stock.find(x=>x.item===p.item);if(s)s.qty=Math.max(0,s.qty-p.qty);n++});
+ save();$("txt").value="";$("prev").innerHTML=`<p class="box">Added ${n} sale(s). Open Advice to see tomorrow's plan.</p>`;parsed=[];$("addBtn").disabled=true}
+
+// ---- logic ----
+function fc(item){ // weekday-aware average daily sales
+ const by={};S.sales.filter(s=>s.item===item).forEach(s=>by[s.date]=(by[s.date]||0)+s.qty);
+ const wd=addD(new Date(),1).getDay(),same=[],all=[];
+ Object.keys(by).forEach(d=>{all.push(by[d]);if(new Date(d+"T00:00").getDay()===wd)same.push(by[d])});
+ const m=a=>a.reduce((x,y)=>x+y,0)/(a.length||1);return same.length>=2?m(same):m(all)}
+const NEAR=[{n:"Sharma General Store",km:0.4,w:["Milk 500ml","Eggs (tray)","Bread"]},{n:"Lakshmi Tiffin Centre",km:0.8,w:["Milk 500ml","Curd 400g","Bread"]},{n:"Green Mart",km:1.2,w:["Eggs (tray)","Parle-G"]}];
+function offer(i,qty,price){
+ const s=S.stock[i],shops=NEAR.filter(x=>x.w.includes(s.item));
+ const msg=`Surplus: ${qty} x ${s.item} at ${inr(price)} each, expires ${s.expiry}. Interested?`;
+ $("o"+i).innerHTML=`<div class="box"><span class="tag">Simulated nearby shops</span><br>`+(shops.length?shops.map(x=>`${esc(x.n)} (${x.km} km) can take this stock`).join("<br>"):"No nearby shop lists this item.")+`<br><a href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Send offer on WhatsApp</a></div>`}
+function advice(){
+ const t=iso(new Date());if(!S.stock.length){$("advOut").innerHTML='<p>No data yet. Load sample data or add sales first.</p>';return}
+ let R="",E="";
+ S.stock.forEach((s,i)=>{const f=fc(s.item),d=dd(s.expiry,t),cover=s.per?1:3,sf=s.per?1.05:1.25;
+  const need=Math.ceil(f*cover*sf)-s.qty;
+  if(need>0)R+=`<tr><td>${esc(s.item)}</td><td>${s.qty}</td><td>${f.toFixed(1)}/day</td><td><b>Order ${need}</b></td></tr>`;
+  if(d<=3){const ex=s.qty-Math.ceil(f*Math.max(d,1));
+   if(ex>0){const dc=d<=1?30:d===2?20:10,np=Math.round(s.price*(1-dc/100));
+    E+=`<tr><td>${esc(s.item)}</td><td>${d} day(s)</td><td class="warn">${ex} extra</td><td>Sell at ${inr(np)} (${dc}% off, below MRP)<div id="o${i}"></div><button class="o" onclick="offer(${i},${ex},${np})">Offer to nearby shops</button></td></tr>`}}});
+ $("advOut").innerHTML=`<h3>Restock list</h3><p class="note">Forecast uses the same weekday's average sales; perishables get a 1-day cover, others 3 days plus a safety buffer.</p>`+
+ (R?`<div class="w"><table><tr><th>Item</th><th>On hand</th><th>Expected sales</th><th>Action</th></tr>${R}</table></div>`:"<p>Stock looks sufficient.</p>")+
+ `<h3>Expiring soon</h3>`+(E?`<div class="w"><table><tr><th>Item</th><th>Expires in</th><th>Likely unsold</th><th>Suggestion</th></tr>${E}</table></div>`:"<p>Nothing at risk of expiring unsold.</p>")}
+function udhaar(){
+ const t=iso(new Date()),wk=iso(addD(new Date(),-7));let cash=0,out=0,w7=0;
+ S.sales.forEach(s=>{const a=s.qty*s.price;if(s.date===t&&s.paid)cash+=a;if(!s.paid)out+=a;if(s.date>=wk)w7+=a});
+ $("kp").innerHTML=`<div>Cash received today<b>${inr(cash)}</b></div><div>Udhaar outstanding<b class="bad">${inr(out)}</b></div><div>Sales, last 7 days<b>${inr(w7)}</b></div>`;
+ const rows=S.sales.map((s,i)=>[s,i]).filter(x=>x[0].payment==="credit").sort((a,b)=>b[0].date.localeCompare(a[0].date)).slice(0,40);
+ $("udRows").innerHTML=rows.length?rows.map(([s,i])=>`<tr><td>${s.date}</td><td>${esc(s.customer)}</td><td>${esc(s.item)} x ${s.qty}</td><td>${inr(s.qty*s.price)}</td><td>${s.paid?"Paid":`<button class="o" onclick="S.sales[${i}].paid=true;save();udhaar()">Mark paid</button>`}</td></tr>`).join(""):'<tr><td colspan="5">No credit sales yet.</td></tr>'}
+tab("add");
+</script></body></html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Merchant Assist</title>
+<style>
+:root{--g:#1e5b3a;--r:#b3261e;--a:#a85d00;--l:#dfe5e0;--bg:#f4f6f3}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,sans-serif;background:var(--bg);color:#1c2520}
+header{background:var(--g);color:#fff;padding:14px 20px}header h1{margin:0;font-size:1.3rem}header p{margin:3px 0 0;font-size:.85rem;opacity:.9}
+nav{display:flex;gap:6px;padding:12px 16px;flex-wrap:wrap;max-width:1000px;margin:0 auto}
+button{background:var(--g);color:#fff;border:0;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #e0a100;outline-offset:2px}
+button.o{background:#fff;color:var(--g);border:1px solid var(--g)}button.on{background:var(--g);color:#fff}
+main{max-width:1000px;margin:0 auto;padding:0 16px 40px}
+section{display:none;background:#fff;border:1px solid var(--l);border-radius:8px;padding:16px;margin-bottom:14px}section.on{display:block}
+h2{margin:0 0 10px;font-size:1.05rem}h3{margin:16px 0 6px;font-size:.95rem}
+.f{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+label{font-size:.78rem;color:#55645b;display:block}
+input,select{width:100%;padding:8px;border:1px solid #c5cec8;border-radius:6px;font:inherit;background:#fff;margin-top:3px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--l);font-size:.88rem}th{background:#eef2ee}
+.w{overflow-x:auto}.k{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.k div{border:1px solid var(--l);border-radius:8px;padding:10px}.k b{display:block;font-size:1.35rem}
+.bad{color:var(--r)}.warn{color:var(--a)}.note{font-size:.8rem;color:#55645b}.tag{background:#fff1d6;color:var(--a);padding:1px 7px;border-radius:10px;font-size:.75rem}
+.box{background:#f1f6f2;border:1px solid var(--l);border-radius:6px;padding:8px 10px;margin-top:8px;font-size:.85rem}
+</style></head><body>
+<header><h1>Merchant Assist</h1><p>Record sales and udhaar separately. Get restock advice and expiry alerts. Runs offline in this browser.</p></header>
+<nav id="nav"></nav>
+<main>
+<section id="sales"><h2>Sales (cash and UPI)</h2>
+<div class="f">
+<div><label>Item (pick or type)<input id="si" list="items" placeholder="e.g. Milk 500ml" oninput="fill('si','sp')"></label></div>
+<div><label>Quantity<select id="sq"></select></label></div>
+<div><label>Price per unit (₹)<input id="sp" type="number" min="0" step="0.5"></label></div>
+<div><label>Payment<select id="sm"><option>Cash</option><option>UPI</option><option>Card</option></select></label></div>
+<div><button onclick="addSale()">Add sale</button></div></div>
+<div id="smsg"></div>
+<h3>Today's sales</h3><div class="w"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th><th>Payment</th></tr></thead><tbody id="sRows"></tbody></table></div>
+<p><button class="o" onclick="sample()">Load sample data</button> <button class="o" onclick="resetAll()">Clear all data</button></p>
+<p class="note">Sample data is synthetic and generated for the demo. Credit sales go in the Lending tab.</p></section>
+
+<section id="lend"><h2>Lending (udhaar ledger)</h2>
+<div class="f">
+<div><label>Customer name (pick or type)<input id="lc" list="custs" oninput="pick()" placeholder="e.g. Ramesh"></label></div>
+<div><label>Mobile number<input id="lm" inputmode="numeric" maxlength="10" placeholder="10 digits"></label></div>
+<div><label>Item (pick or type)<input id="li" list="items" oninput="fill('li','lp')"></label></div>
+<div><label>Quantity<select id="lq"></select></label></div>
+<div><label>Price per unit (₹)<input id="lp" type="number" min="0" step="0.5"></label></div>
+<div><label>Repay by<select id="ld"></select></label></div>
+<div><button onclick="addLoan()">Add udhaar</button></div></div>
+<div id="lmsg"></div>
+<div class="k" id="kp" style="margin-top:14px"></div>
+<h3>Ledger</h3><div class="w"><table><thead><tr><th>Date</th><th>Customer</th><th>Mobile</th><th>Item</th><th>Amount</th><th>Due</th><th>Status</th></tr></thead><tbody id="lRows"></tbody></table></div>
+<h3>Owed by customer</h3><div class="w"><table><thead><tr><th>Customer</th><th>Mobile</th><th>Owes</th><th>Reminder</th></tr></thead><tbody id="cRows"></tbody></table></div></section>
+
+<section id="adv"><h2>Advice for tomorrow</h2><div id="advOut"></div></section>
+</main>
+<datalist id="items"></datalist><datalist id="custs"></datalist>
+<script>
+const K="merchant_assist_v2",$=i=>document.getElementById(i);
+let S=load();
+function load(){try{const d=JSON.parse(localStorage.getItem(K));return d&&d.sales?d:{sales:[],stock:[],cust:{}}}catch(e){return{sales:[],stock:[],cust:{}}}}
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const addD=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inr=n=>"₹"+Math.round(n).toLocaleString("en-IN");
+const dd=(a,b)=>Math.round((new Date(a)-new Date(b))/864e5);
+const TABS=[["sales","Sales"],["lend","Lending (udhaar)"],["adv","Advice"]];
+function tab(id){TABS.forEach(t=>$(t[0]).classList.toggle("on",t[0]===id));[...$("nav").children].forEach((b,i)=>b.classList.toggle("on",TABS[i][0]===id));
+ if(id==="sales")salesView();if(id==="lend")lendView();if(id==="adv")advice()}
+$("nav").innerHTML=TABS.map(t=>`<button class="o" onclick="tab('${t[0]}')">${t[1]}</button>`).join("");
+
+// ---- catalog and dropdown options ----
+const ITEMS=[["Milk 500ml",28,25,1,70,2],["Bread",40,12,1,30,2],["Curd 400g",35,10,1,18,3],["Parle-G",10,30,0,90,120],["Atta 5kg",230,6,0,14,150],["Sunflower oil 1L",140,5,0,10,200],["Tea 250g",120,5,0,12,300],["Eggs (tray)",180,4,1,20,3]];
+function catalog(){const m={};ITEMS.forEach(i=>m[i[0]]=i[1]);S.stock.forEach(s=>m[s.item]=s.price);S.sales.forEach(s=>{if(!(s.item in m))m[s.item]=s.price});return m}
+function opts(){
+ $("items").innerHTML=Object.keys(catalog()).map(n=>`<option value="${esc(n)}">`).join("");
+ const names=new Set(Object.keys(S.cust));S.sales.forEach(s=>s.customer&&names.add(s.customer));
+ $("custs").innerHTML=[...names].map(n=>`<option value="${esc(n)}">`).join("");
+ const q=[...Array(20)].map((_,i)=>`<option>${i+1}</option>`).join("");$("sq").innerHTML=q;$("lq").innerHTML=q;
+ // repayment dropdown: end of this month, end of next month, 7/15 days
+ const t=new Date(),eom=d=>new Date(d.getFullYear(),d.getMonth()+1,0);
+ const o=[["End of this month",eom(t)],["In 7 days",addD(t,7)],["In 15 days",addD(t,15)],["End of next month",eom(new Date(t.getFullYear(),t.getMonth()+1,1))]];
+ $("ld").innerHTML=o.map(x=>`<option value="${iso(x[1])}">${x[0]} (${iso(x[1])})</option>`).join("")}
+function fill(a,b){const p=catalog()[$(a).value];if(p!=null)$(b).value=p}
+function pick(){const m=S.cust[$("lc").value.trim()];if(m)$("lm").value=m}
+function adjStock(item,q){const s=S.stock.find(x=>x.item===item);if(s)s.qty=Math.max(0,s.qty-q)}
+
+// ---- sample data (synthetic) ----
+function sample(){
+ let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+ const t=new Date(),cust=[["Ramesh","9876500001"],["Sunita","9876500002"],["Imran","9876500003"]];S={sales:[],stock:[],cust:{}};
+ cust.forEach(c=>S.cust[c[0]]=c[1]);
+ for(let n=28;n>=1;n--){const d=addD(t,-n),we=[0,6].includes(d.getDay());
+  ITEMS.forEach(it=>{const bump=(it[0]==="Atta 5kg"&&n===10)?1.8:1;
+   const q=Math.max(0,Math.round(it[2]*(we?1.3:1)*bump*(0.8+rnd()*0.4)));
+   if(q){const cr=rnd()<.15,c=cust[Math.floor(rnd()*3)],due=iso(new Date(d.getFullYear(),d.getMonth()+1,0));
+    S.sales.push({item:it[0],qty:q,price:it[1],date:iso(d),payment:cr?"credit":"cash",customer:cr?c[0]:"",mobile:cr?c[1]:"",due:cr?due:"",paid:!cr})}})}
+ ITEMS.forEach(it=>S.stock.push({item:it[0],price:it[1],per:!!it[3],qty:it[4],expiry:iso(addD(t,it[5]))}));
+ save();tab("adv")}
+function resetAll(){if(confirm("Delete all data in this browser?")){S={sales:[],stock:[],cust:{}};save();tab("sales")}}
+
+// ---- sales tab ----
+function addSale(){
+ const item=$("si").value.trim(),qty=+$("sq").value,price=+$("sp").value;
+ if(!item||!(price>0)){$("smsg").innerHTML='<p class="box bad">Pick or type an item and enter a price.</p>';return}
+ S.sales.push({item,qty,price,date:iso(new Date()),payment:$("sm").value.toLowerCase(),customer:"",mobile:"",due:"",paid:true});
+ adjStock(item,qty);save();$("si").value="";$("sp").value="";$("sq").value=1;
+ $("smsg").innerHTML=`<p class="box">Added ${qty} x ${esc(item)} (${inr(qty*price)}).</p>`;salesView()}
+function salesView(){
+ opts();const t=iso(new Date()),rows=S.sales.filter(s=>s.date===t&&s.payment!=="credit");
+ $("sRows").innerHTML=rows.length?rows.map(s=>`<tr><td>${esc(s.item)}</td><td>${s.qty}</td><td>${inr(s.qty*s.price)}</td><td>${esc(s.payment)}</td></tr>`).join("")+`<tr><th colspan="2">Total today</th><th colspan="2">${inr(rows.reduce((a,s)=>a+s.qty*s.price,0))}</th></tr>`:'<tr><td colspan="4">No sales added today.</td></tr>'}
+
+// ---- lending tab ----
+function addLoan(){
+ const c=$("lc").value.trim(),m=$("lm").value.trim(),item=$("li").value.trim(),qty=+$("lq").value,price=+$("lp").value;
+ if(!c||!item||!(price>0)){$("lmsg").innerHTML='<p class="box bad">Enter customer name, item and price.</p>';return}
+ if(!/^\d{10}$/.test(m)){$("lmsg").innerHTML='<p class="box bad">Mobile number must be 10 digits.</p>';return}
+ S.cust[c]=m;S.sales.push({item,qty,price,date:iso(new Date()),payment:"credit",customer:c,mobile:m,due:$("ld").value,paid:false});
+ adjStock(item,qty);save();["lc","lm","li","lp"].forEach(i=>$(i).value="");$("lq").value=1;
+ $("lmsg").innerHTML=`<p class="box">Added udhaar: ${esc(c)} took ${qty} x ${esc(item)} (${inr(qty*price)}).</p>`;lendView()}
+function lendView(){
+ opts();const t=iso(new Date()),all=S.sales.map((s,i)=>[s,i]).filter(x=>x[0].payment==="credit");
+ let out=0,over=0,rec=0;const by={};
+ all.forEach(([s])=>{const a=s.qty*s.price;if(!s.paid){out+=a;if(s.due&&s.due<t)over+=a;(by[s.customer]=by[s.customer]||{m:s.mobile,a:0}).a+=a}else rec+=a});
+ $("kp").innerHTML=`<div>Udhaar outstanding<b class="bad">${inr(out)}</b></div><div>Overdue<b class="warn">${inr(over)}</b></div><div>Repaid so far<b>${inr(rec)}</b></div>`;
+ const rows=all.sort((a,b)=>b[0].date.localeCompare(a[0].date)).slice(0,40);
+ $("lRows").innerHTML=rows.length?rows.map(([s,i])=>`<tr><td>${s.date}</td><td>${esc(s.customer)}</td><td>${esc(s.mobile)}</td><td>${esc(s.item)} x ${s.qty}</td><td>${inr(s.qty*s.price)}</td><td>${esc(s.due)}</td><td>${s.paid?"Paid":`<button class="o" onclick="S.sales[${i}].paid=true;save();lendView()">Mark paid</button>`}</td></tr>`).join(""):'<tr><td colspan="7">No udhaar entries yet.</td></tr>';
+ const cs=Object.keys(by);
+ $("cRows").innerHTML=cs.length?cs.map(n=>{const msg=`Namaste ${n}, your udhaar balance at our shop is ${inr(by[n].a)}. Please pay by month end. Thank you.`;
+  return`<tr><td>${esc(n)}</td><td>${esc(by[n].m)}</td><td class="bad">${inr(by[n].a)}</td><td><a href="https://wa.me/91${esc(by[n].m)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp reminder</a></td></tr>`}).join(""):'<tr><td colspan="4">Nobody owes anything.</td></tr>'}
+
+// ---- advice (unchanged logic) ----
+function fc(item){
+ const by={};S.sales.filter(s=>s.item===item).forEach(s=>by[s.date]=(by[s.date]||0)+s.qty);
+ const wd=addD(new Date(),1).getDay(),same=[],all=[];
+ Object.keys(by).forEach(d=>{all.push(by[d]);if(new Date(d+"T00:00").getDay()===wd)same.push(by[d])});
+ const m=a=>a.reduce((x,y)=>x+y,0)/(a.length||1);return same.length>=2?m(same):m(all)}
+const NEAR=[{n:"Sharma General Store",km:0.4,w:["Milk 500ml","Eggs (tray)","Bread"]},{n:"Lakshmi Tiffin Centre",km:0.8,w:["Milk 500ml","Curd 400g","Bread"]},{n:"Green Mart",km:1.2,w:["Eggs (tray)","Parle-G"]}];
+function offer(i,qty,price){
+ const s=S.stock[i],shops=NEAR.filter(x=>x.w.includes(s.item));
+ const msg=`Surplus: ${qty} x ${s.item} at ${inr(price)} each, expires ${s.expiry}. Interested?`;
+ $("o"+i).innerHTML=`<div class="box"><span class="tag">Simulated nearby shops</span><br>`+(shops.length?shops.map(x=>`${esc(x.n)} (${x.km} km) can take this stock`).join("<br>"):"No nearby shop lists this item.")+`<br><a href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Send offer on WhatsApp</a></div>`}
+function advice(){
+ const t=iso(new Date());if(!S.stock.length){$("advOut").innerHTML='<p>No data yet. Load sample data from the Sales tab first.</p>';return}
+ let R="",E="";
+ S.stock.forEach((s,i)=>{const f=fc(s.item),d=dd(s.expiry,t),cover=s.per?1:3,sf=s.per?1.05:1.25;
+  const need=Math.ceil(f*cover*sf)-s.qty;
+  if(need>0)R+=`<tr><td>${esc(s.item)}</td><td>${s.qty}</td><td>${f.toFixed(1)}/day</td><td><b>Order ${need}</b></td></tr>`;
+  if(d<=3){const ex=s.qty-Math.ceil(f*Math.max(d,1));
+   if(ex>0){const dc=d<=1?30:d===2?20:10,np=Math.round(s.price*(1-dc/100));
+    E+=`<tr><td>${esc(s.item)}</td><td>${d} day(s)</td><td class="warn">${ex} extra</td><td>Sell at ${inr(np)} (${dc}% off, below MRP)<div id="o${i}"></div><button class="o" onclick="offer(${i},${ex},${np})">Offer to nearby shops</button></td></tr>`}}});
+ $("advOut").innerHTML=`<h3>Restock list</h3><p class="note">Forecast uses the same weekday's average sales; perishables get a 1-day cover, others 3 days plus a safety buffer.</p>`+
+ (R?`<div class="w"><table><tr><th>Item</th><th>On hand</th><th>Expected sales</th><th>Action</th></tr>${R}</table></div>`:"<p>Stock looks sufficient.</p>")+
+ `<h3>Expiring soon</h3>`+(E?`<div class="w"><table><tr><th>Item</th><th>Expires in</th><th>Likely unsold</th><th>Suggestion</th></tr>${E}</table></div>`:"<p>Nothing at risk of expiring unsold.</p>")}
+tab("sales");
+</script></body></html>
